@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>Media Streaming</title>
+    <style></style>
+  </head>
+  <body>
+    <main>
+      <button type="button" id="download-button">download</button>
+      <div id="data-result"></div>
+    </main>
+    <script>
+      const resultElement = document.getElementById("data-result");
+      document
+        .getElementById("download-button")
+        .addEventListener("click", onDownloadButtonClick);
+
+      let rest = "";
+      let valid = [];
+      function onDownloadButtonClick(event) {
+        fetch("http://localhost:8080/streams")
+          // o body de um response é um readable stream
+          // readable streams são pedacinhos de dados
+          .then((response) =>
+            response.body
+              .pipeThrough(decode())
+              .pipeThrough(parse())
+              .pipeThrough(toJSON())
+          )
+          .then((stream) =>
+            tee(stream).pipeTo(logStream(), appendToDOM(resultElement))
+          )
+          .catch(console.error);
+      }
+
+      function decode() {
+        return new TransformStream({
+          transform(chunk, controller) {
+            controller.enqueue(new TextDecoder("utf-8").decode(chunk));
+          },
+        });
+      }
+
+      function logStream(logger = console.log) {
+        return new WritableStream({
+          write(chunk) {
+            logger(chunk);
+          },
+        });
+      }
+
+      function tee(stream) {
+        const [teed1, teed2] = stream.tee();
+        return {
+          pipeTo(destination1, destination2) {
+            teed1.pipeTo(destination1);
+            teed2.pipeTo(destination2);
+          },
+        };
+      }
+
+      function appendToDOM(element) {
+        return new WritableStream({
+          write(chunk) {
+            const div = document.createElement("div");
+            const text = `${chunk.id} has USD ${chunk.value}.`;
+            div.textContent = text;
+            element.appendChild(div);
+            div.focus();
+          },
+        });
+      }
+
+      function parse() {
+        return new TransformStream({
+          transform(chunk, controller) {
+            let rest = "";
+            chunk.split("\n").forEach((value) => {
+              if (isValid(value)) controller.enqueue(sanitize(value));
+              else rest += value;
+              if (isValid(rest)) {
+                controller.enqueue(sanitize(rest));
+                rest = "";
+              }
+            });
+          },
+        });
+      }
+
+      function isValid(value) {
+        const sanitized = sanitize(value);
+        return /{.+}/.test(sanitized);
+      }
+
+      function sanitize(value) {
+        return value.trim().replace(/,$/, "");
+      }
+
+      function toJSON() {
+        return new TransformStream({
+          transform(chunk, controller) {
+            controller.enqueue(JSON.parse(chunk));
+          },
+        });
+      }
+
+      async function readBody(body) {
+        const reader = body.getReader();
+        // isso está aqui pq o client não sabe quando
+        while (true) {
+          const { done, value } = await reader.read();
+          //  quando isso for true quer dizer que acabou
+          if (done) break;
+          // value is a bunch of binaries
+          // usually we would use response.json() or
+          // response.text()
+          // but these will read the response until completion
+          // since we want to read it piece by piece
+          var text = new TextDecoder("utf-8").decode(value);
+          const splited = text.split("\n");
+          for (let i = 0; i < splited.length; i++) {
+            const arr_piece = splited[i];
+            if (arr_piece === "[" || arr_piece === "]") continue;
+            if (/{.+}/.test(arr_piece.trim().replace(/,$/, ""))) {
+              const stringfiedJSON = arr_piece.trim().replace(/,$/, "");
+              const decoded = JSON.parse(stringfiedJSON);
+              console.log(decoded);
+              valid.push(decoded);
+            } else rest += arr_piece;
+            if (/{.+}/.test(rest)) {
+              const stringfiedJSON = rest.trim().replace(/,$/, "");
+              const decoded = JSON.parse(stringfiedJSON);
+              console.log(decoded);
+              valid.push(decoded);
+              rest = "";
+            }
+          }
+        }
+      }
+    </script>
+  </body>
+</html>

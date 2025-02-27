@@ -10,20 +10,35 @@
   <body>
     <main>
       <button type="button" id="download-button">download</button>
+      <button type="button" id="download-button-streams">
+        download with streams
+      </button>
       <div id="data-result"></div>
     </main>
     <script>
-      const resultElement = document.getElementById("data-result");
       document
         .getElementById("download-button")
-        .addEventListener("click", onDownloadButtonClick);
+        .addEventListener("click", onButtonClick);
 
-      let rest = "";
-      let valid = [];
-      function onDownloadButtonClick(event) {
-        fetch("http://localhost:8080/streams")
-          // o body de um response é um readable stream
-          // readable streams são pedacinhos de dados
+      document
+        .getElementById("download-button-streams")
+        .addEventListener("click", onStreamsButtonClick);
+
+      function onButtonClick(event) {
+        fetch("http://localhost:8080/really-big-file")
+          // the response.body is a readable stream
+          .then((response) => response.json())
+          .then((value) => {
+            console.log(value);
+            return value;
+          })
+          .then((text) => JSON.parse(text))
+          .then(appendToDOMJSON)
+          .catch(console.error);
+      }
+      function onStreamsButtonClick(event) {
+        fetch("http://localhost:8080/really-big-file")
+          // the response.body is a readable stream
           .then((response) =>
             response.body
               .pipeThrough(decode())
@@ -31,7 +46,7 @@
               .pipeThrough(toJSON())
           )
           .then((stream) =>
-            tee(stream).pipeTo(logStream(), appendToDOM(resultElement))
+            tee(stream).pipeTo(logStream(), appendToDOMStream())
           )
           .catch(console.error);
       }
@@ -47,13 +62,18 @@
       function logStream(logger = console.log) {
         return new WritableStream({
           write(chunk) {
+            // reads chunk by chunk and make some output with it
+            // in this case log it on the terminal
             logger(chunk);
           },
         });
       }
 
       function tee(stream) {
+        // readable streams can be teed
+        // that means make a copy of the stream
         const [teed1, teed2] = stream.tee();
+
         return {
           pipeTo(destination1, destination2) {
             teed1.pipeTo(destination1);
@@ -62,20 +82,31 @@
         };
       }
 
-      function appendToDOM(element) {
+      function appendToDOMJSON(json) {
+        json.forEach(appendToDOM);
+      }
+
+      function appendToDOM(chunk) {
+        const resultElement = document.getElementById("data-result");
+        const div = document.createElement("div");
+        const text = `id: ${chunk.id}; name: ${chunk.name}; email: ${chunk.email}.`;
+        div.textContent = text;
+        element.appendChild(div);
+      }
+
+      function appendToDOMStream() {
         return new WritableStream({
           write(chunk) {
-            const div = document.createElement("div");
-            const text = `${chunk.id} has USD ${chunk.value}.`;
-            div.textContent = text;
-            element.appendChild(div);
-            div.focus();
+            // same as the last one but now we are appending the result to DOM
+            appendToDOM(chunk);
           },
         });
       }
 
       function parse() {
         return new TransformStream({
+          // read the stream and then write it again but making changes
+          // in this case make string pieces into parsable jsons
           transform(chunk, controller) {
             let rest = "";
             chunk.split("\n").forEach((value) => {
@@ -100,45 +131,12 @@
       }
 
       function toJSON() {
+        // read parsable strings and parse into js objects
         return new TransformStream({
           transform(chunk, controller) {
             controller.enqueue(JSON.parse(chunk));
           },
         });
-      }
-
-      async function readBody(body) {
-        const reader = body.getReader();
-        // isso está aqui pq o client não sabe quando
-        while (true) {
-          const { done, value } = await reader.read();
-          //  quando isso for true quer dizer que acabou
-          if (done) break;
-          // value is a bunch of binaries
-          // usually we would use response.json() or
-          // response.text()
-          // but these will read the response until completion
-          // since we want to read it piece by piece
-          var text = new TextDecoder("utf-8").decode(value);
-          const splited = text.split("\n");
-          for (let i = 0; i < splited.length; i++) {
-            const arr_piece = splited[i];
-            if (arr_piece === "[" || arr_piece === "]") continue;
-            if (/{.+}/.test(arr_piece.trim().replace(/,$/, ""))) {
-              const stringfiedJSON = arr_piece.trim().replace(/,$/, "");
-              const decoded = JSON.parse(stringfiedJSON);
-              console.log(decoded);
-              valid.push(decoded);
-            } else rest += arr_piece;
-            if (/{.+}/.test(rest)) {
-              const stringfiedJSON = rest.trim().replace(/,$/, "");
-              const decoded = JSON.parse(stringfiedJSON);
-              console.log(decoded);
-              valid.push(decoded);
-              rest = "";
-            }
-          }
-        }
       }
     </script>
   </body>

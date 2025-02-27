@@ -1,103 +1,155 @@
-## What is a stream?
+# Fantastic Streams and where to find them
 
-Stream é um fluxo de dados ao longo do tempo.
+What problems they solve? What exactly is a stream? Where they live? This and more on this post.
+But let's take a step back and look at common problem where streams shine.
 
-## Where they live?
+Let's imagine that we have to read a large dataset from a file or a database and do something with it.
+If you try to fetch it like this:
 
-## Why?
+```js
+const response = await fetch("/large-dataset");
+const largeDataset = await response.json();
+doSomething(largeDataset);
+```
 
-Digamos que você quer ver um filme, você entra no seu provedor de filmes de preferência e aperta play, o que acontece?
+Depending on your memory you'll either get an `out of memory error` or wait for a some time untill the program can do anything.
 
-### Sem streams
+Here is what large dataset do to our program:
+![Excessevely large dataset crushing your program's memory](https://media2.dev.to/dynamic/image/width=800%2Cheight=%2Cfit=scale-down%2Cgravity=auto%2Cformat=auto/https%3A%2F%2Fdev-to-uploads.s3.amazonaws.com%2Fuploads%2Farticles%2Feje4t7pp779dkzpipp7j.png)
 
-Você espera até o filme inteiro ser baixado, e por um filme ser um arquivo muito grande isso pode levar algum tempo antes de poder assistir qualquer coisa.
+What if instead of reading the entire dataset at once we could read it chunk by chunk as soon as it's available?
 
-![Arquivo muito grande acabando com sua memória](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/hsug4l1los4zwdncrymx.png)
+Like this:
+![Chunks entering your memory to be proccessed](https://media2.dev.to/dynamic/image/width=800%2Cheight=%2Cfit=scale-down%2Cgravity=auto%2Cformat=auto/https%3A%2F%2Fdev-to-uploads.s3.amazonaws.com%2Fuploads%2Farticles%2Frke19afp3gjgvpdi73ab.png)
 
-### Com streams
+## What exactly is a stream?
 
-Diferente do caso anterior onde os dados só são processados na memória de uma vez só, dados em Stream vão vir em pacotinhos(chamados chunks), onde vc pode processar eles individualmente.
+As popularly quoted “streams are arrays over time.”
 
-![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/vi8m1xrdl6leih9m5zbg.png)
+Or if you prefer a more fancy description:
 
-Alguns outros casos de uso para Stream são:
+> In computer science, a stream is a sequence of potentially unlimited data elements made available over time.
 
-- multimedia
-- transferencia de arquivos
-- descompressão e compressão
-- são a interface padrão para a input/output(I/O) em sistemas Unix
+by [Wikipedia](<https://en.wikipedia.org/wiki/Stream_(computing)>):
 
-Pronto, agora que você leitor está convencido, ou não... sobre a importância das Streams bora ver alguns conceitos.
+### With Streams
 
-## Como funciona?
+Some common use cases are:
 
-[EXPLICAR AQUI OS COMPONENTES DE UMA STREAM]
+- handling multimedia
+- reading and writing large files
+- compression and decompression
+- encryption
+- networking
 
-### Interface
+If you use the fetch API you already use streams, you may have done something like this.
 
-Esse exemplos vão ter como base as specs do [whatwg.org](https://streams.spec.whatwg.org/)
-as interfaces são readable streams, writable streams, e transform streams.
+```js
+const response = await fetch(url);
+const { body } = response;
+const parsed = await body.json();
+```
 
-#### Chunk
+This `body` property is a Readable Stream, more on this later, of bits.
 
-É um pedacinho de dado que pode ser lido ou escrito numa stream. Detalhe importante, chunks não precisam ser do mesmo tipo.
+```js
+const { body } = response;
+```
 
-#### Readable Streams
+The `.json()` method will wait for the response to end and then parse the whole response.
 
-É uma fonte de dados representado no Javascript pelo objeto ReadableStream, que tira os dados de um _underlying source_, os quais pode ser do tipo:
+```js
+const parsed = await body.json();
+x;
+```
 
-- Push: manda dados constantemente pra vc sem te perguntar se vc quer mais.
-- Pull: manda dados apenas quando vc pede.
+But if you're expecting a very big response or just want a more seamsless response to the user, we can use streams and start processing the data chunk by chunk.
+Now if you're convinced or not... let's dive deeper into streams concepts.
 
-Quando os chunks estão na stream dizemos que eles estão enqueued(tão na espera), existe uma fila interna que controla os chunks ainda não lidos, mas vamos fingir que isso não existe, por enquanto...
+Just an observation, NodeJS Streams are different from their WEB Standard cousin, I'll try to explain their difference in this post.
 
-Os Chunks dentro da stream vão ser lidos pelo _reader_ que le eles um por vez, que por sua vez passa esses dados para um _consumer_.
+## Concepts
 
-Existe um construtor chamado controller, caso vc queira cancelar a stream por exemplo.
+There are 2 Types of streams Readable and Writable and the combination of both the Transform Stream on the Web or Duplex in NodeJS
 
-Cada Stream só pode ter um _reader_ por vez, uma vez que ele ta lendo dizemos que a stream está _locked_. Porém há meios de vc ler os mesmos dados, logo mais falamos disso.
+### Types of Streams
 
-Exemplos de ReadableStreams são o Response.body de um fetch
+#### Readable
 
-`fetch('url')
-  .then(response => 
-    response.body// esse cara é um RedableStream
-  )`
+It's the input equivalent of streams. Some examples of ReadableStreams in the wild is the response.body in our previous example and http.IncomingMessage in NodeJS
 
-O objeto ReadableStream recebe dois parametros o primeiro cria um modelo do underlying source
-`const underlyingSourceModel = {
-  start(controller) {}, // chamado imediatamente quando o objeto é construido
-  pull(controller) {}, // chamado até que internal queue esteja cheia
-  cancel() {}, // chamado quando o método ReadableStream.cancel() for chamado
-}`
+```js
+import http from "node:http";
+const server = http.createServer();
+server.on("request", (request, response) => {
+  request.on("data", (chunk) => handleChunk(chunk));
+});
+```
 
-o segundo parametro é opcional e ele especifíca uma queuing strategy
+#### Writable
 
-`const queuingStratety = {
-  highWaterMark,
-  size(){}
-}`
+It's the output equivalent of streams. Some examples of WritableStreams in the wild is the response object in the http module
 
-#### Writable Streams
+```js
+import http from "node:http";
+const server = http.createServer((request, response) => {
+  request.on("data", (chunk) => readChunk(chunk));
+});
+```
 
-#### Transform Streams
+#### Transform
 
-#### Pipe chains
+The combination of both
+In NodeJS we call them Duplex, some examples of Transform streams in the wild is the Socket class in the net module:
 
-#### Teeing
+```js
+import http from "node:http";
+const server = http.createServer((request, response) => {
+  response.write("<h1>Fantastic Streams and Where To Find Them</h1>");
+});
+```
 
-#### Backpressure
+### Chunks
 
-A situações em que uma stream le ou escreve dados mais rápido que a próxima stream consegue processar.
-Exemplo é zipar um arquivo, ler do disco é mais rápido que escrever, desse modo o processo de leitura vai fornecer mais info do que a escrita consegue processar.
-Isso acarreta nos seguintes problemas:
+The unit of data in the stream, in a network it wil be a *bit* but you can create streams for bigger data.
 
-- Desacelera todos os demais processos
-- Sobrecarga no garbage collector
-- Uso excessivo de memória
+### Teeing
 
-Para evitar isso o Stream que está acumulando demais, vai usar o Backpressure que é basicamente sinalizar para quem está enviando para desacelerar.
+The ability to create a duplicate of a stream, there's no native teeing in node streams.
 
-### Node
+### Pipe Chains
 
-[EXPLICAR AQUI QUAIS AS DIFERENÇAS COM NODE]
+The ability to chain streams into one another, very useful to change read streams before writing.
+
+## Show me the code
+
+Okay we will apply all this concepts by creating a small app that will read a very large file and display the result chunk by chunk on html.
+
+Let's first assume we have a very big file consisting of multiple json entries of
+
+```json
+{ "id": "1", "timestamp": "2025-02-13T13:56:41.420Z", "value": "355.66" }
+```
+
+I've also set up a vanilla node server, serve a html from get '/'
+
+## Recap
+
+If you could leave this post with a few points, use streams when you want to:
+
+- optimize memory usage
+- process large datasets
+- realtime data processing
+
+## Bonus
+
+Thanks for taking all the way down here, since you're already here bonus content, while trying to create the script for create_really_big_file.js, I've also dealt with out of memory errors
+
+- You can't live the file connection open
+- And memoery is not infinite haha
+
+```
+<--- JS stacktrace --->
+
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+```
